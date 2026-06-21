@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   MdPersonOutline, MdMailOutline, MdLockOutline,
@@ -7,6 +7,7 @@ import {
 import toast from 'react-hot-toast'
 import useAuthStore from '../store/authStore'
 import { GOOGLE_CLIENT_ID } from '../lib/constants'
+import { ensureGoogleSignIn, renderGoogleButton } from '../lib/googleAuth'
 
 export default function RegisterPage() {
   const { register, loginWithGoogle, isLoading } = useAuthStore()
@@ -15,35 +16,44 @@ export default function RegisterPage() {
     username: '', email: '', password: '', confirmPassword: '', role: 'buyer',
   })
   const [showPwd, setShow] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
+  const btnRef = useRef(null)
+
+  const handleGoogleSuccess = useCallback(async (credential) => {
+    setGoogleLoading(true)
+    try {
+      const r = await loginWithGoogle(credential)
+      if (r.success) {
+        toast.success(r.isNew ? 'Akun dibuat' : 'Masuk berhasil')
+        navigate('/', { replace: true })
+      } else {
+        toast.error(r.error || 'Login Google gagal')
+      }
+    } finally {
+      setGoogleLoading(false)
+    }
+  }, [loginWithGoogle, navigate])
+
+  const handleGoogleError = useCallback((msg) => {
+    if (msg && msg !== 'Login Google dibatalkan') toast.error(msg)
+  }, [])
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true; script.defer = true
-    script.onload = () => {
-      window.google?.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogle })
-      window.google?.accounts.id.renderButton(
-        document.getElementById('g-btn-reg'),
-        { theme: 'outline', size: 'large', width: '100%', text: 'signup_with' }
-      )
-    }
-    document.body.appendChild(script)
-    return () => document.body.removeChild(script)
-  }, [])
-
-  const handleGoogle = async (res) => {
-    const r = await loginWithGoogle(res.credential)
-    if (r.success) { toast.success(r.isNew ? 'Akun dibuat' : 'Masuk berhasil'); navigate('/') }
-    else toast.error(r.error)
-  }
+    ensureGoogleSignIn(handleGoogleSuccess, handleGoogleError)
+      .then(() => {
+        const width = btnRef.current?.offsetWidth || 360
+        renderGoogleButton('g-btn-reg', { width, text: 'signup_with' })
+      })
+      .catch(console.error)
+  }, [handleGoogleSuccess, handleGoogleError])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.username || !form.email || !form.password) return toast.error('Isi semua field')
     if (form.username.length < 3)               return toast.error('Username minimal 3 karakter')
     if (!/^[a-zA-Z0-9_]+$/.test(form.username)) return toast.error('Username hanya huruf, angka, underscore')
-    if (form.password.length < 6)               return toast.error('Password minimal 6 karakter')
+    if (form.password.length < 8)               return toast.error('Password minimal 8 karakter')
     if (form.password !== form.confirmPassword)  return toast.error('Password tidak cocok')
     const r = await register({ username: form.username, email: form.email, password: form.password, role: form.role })
     if (r.success) {
@@ -76,7 +86,15 @@ export default function RegisterPage() {
         </Link>
       </p>
 
-      {GOOGLE_CLIENT_ID && <div id="g-btn-reg" style={{ width: '100%', marginBottom: 12 }} />}
+      {GOOGLE_CLIENT_ID && (
+        <div ref={btnRef} id="g-btn-reg" style={{ width: '100%', marginBottom: 12, minHeight: 44, position: 'relative' }}>
+          {googleLoading && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-elevated)', borderRadius: 11, zIndex: 1, fontSize: 14, color: 'var(--text-secondary)', gap: 8 }}>
+              Memproses Google…
+            </div>
+          )}
+        </div>
+      )}
       <AppleDivider />
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

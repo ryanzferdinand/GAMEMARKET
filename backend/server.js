@@ -40,6 +40,7 @@ import disputeRoutes from './routes/disputes.js'
 import marketplaceAdminRoutes from './routes/marketplaceAdmin.js'
 import sellerStatsRoutes from './routes/sellerStats.js'
 import { startMarketplaceJobs } from './lib/jobs/marketplaceJobs.js'
+import { initCloudinaryStorage, isCloudinaryEnabled } from './lib/cloudinaryStorage.js'
 
 // Socket handlers
 import { setupSocketHandlers } from './socket/handlers.js'
@@ -77,19 +78,50 @@ const io = new Server(httpServer, {
 app.use(compression({ level: 6, threshold: 1024 })) // PERF-001: gzip responses
 
 const isProd = process.env.NODE_ENV === 'production'
+
+function buildCspDirectives() {
+  const connectSrc = new Set([
+    "'self'",
+    'ws:',
+    'wss:',
+    'https://accounts.google.com',
+    'https://oauth2.googleapis.com',
+    'http://localhost:5000',
+    'http://localhost:3000',
+  ])
+
+  for (const origin of getAllowedOrigins()) {
+    connectSrc.add(origin)
+    if (origin.startsWith('https://')) connectSrc.add(origin.replace('https://', 'wss://'))
+    if (origin.startsWith('http://')) connectSrc.add(origin.replace('http://', 'ws://'))
+  }
+
+  return {
+    defaultSrc: ["'self'"],
+    styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://accounts.google.com'],
+    fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+    imgSrc: [
+      "'self'",
+      'data:',
+      'blob:',
+      'https://*.cloudinary.com',
+      'https://res.cloudinary.com',
+      'https://*.googleusercontent.com',
+      'https://lh3.googleusercontent.com',
+    ],
+    scriptSrc: isProd
+      ? ["'self'", 'https://accounts.google.com']
+      : ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://accounts.google.com'],
+    connectSrc: [...connectSrc],
+    // Required for Google Sign-In popup/iframe — white screen if missing
+    frameSrc: ["'self'", 'https://accounts.google.com'],
+    childSrc: ["'self'", 'https://accounts.google.com'],
+  }
+}
+
 app.use(helmet({
   contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https://*.cloudinary.com", "https://res.cloudinary.com"],
-      // SEC-007: production builds use external scripts only — no unsafe-inline/eval
-      scriptSrc: isProd
-        ? ["'self'", "https://accounts.google.com"]
-        : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://accounts.google.com"],
-      connectSrc: ["'self'", "ws:", "wss:", "http://localhost:5000", "http://localhost:5173", "https://accounts.google.com"],
-    },
+    directives: buildCspDirectives(),
   },
 }))
 app.use(cors(corsOptions))
@@ -171,6 +203,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     timestamp: new Date(),
     mode: isProductionDeploy() ? 'production' : 'development',
+    cloudinary: isCloudinaryEnabled(),
   })
 })
 
@@ -270,6 +303,11 @@ connectDB().then(async () => {
 
   httpServer.listen(PORT, () => {
     const siteUrl = process.env.FRONTEND_URL || `http://localhost:${PORT}`
+    if (initCloudinaryStorage()) {
+      console.log('☁️  Cloudinary aktif — semua upload gambar ke cloud')
+    } else {
+      console.log('📁 Cloudinary tidak dikonfigurasi — upload gambar ke /uploads lokal')
+    }
     console.log(`🚀 Server running on port ${PORT}`)
     console.log(`🌐 Site URL: ${siteUrl}`)
     console.log(`📊 Mode: ${isProductionDeploy() ? 'production' : 'development'}`)

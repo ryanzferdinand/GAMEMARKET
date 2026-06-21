@@ -4,33 +4,9 @@ import Message from '../models/Message.js'
 import { authenticate } from '../middleware/auth.js'
 import { upload } from '../middleware/upload.js'
 import { messagesForClient, messageForClient } from '../lib/chatCrypto.js'
+import { storeImage } from '../lib/cloudinaryStorage.js'
 
 const router = express.Router()
-
-// ── Cloudinary auto-setup ────────────────────────────────────────
-// If CLOUDINARY_CLOUD_NAME is in .env, images go to Cloudinary.
-// Otherwise they are saved to /uploads (local disk, served by Express).
-let cloudinary = null
-
-if (
-  process.env.CLOUDINARY_CLOUD_NAME &&
-  process.env.CLOUDINARY_API_KEY &&
-  process.env.CLOUDINARY_API_SECRET
-) {
-  try {
-    const { v2 } = await import('cloudinary')
-    v2.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key:    process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-    })
-    cloudinary = v2
-    console.log('✅ Cloudinary configured — chat images will use Cloudinary')
-  } catch {
-    console.warn('⚠️  cloudinary package not installed — using local storage')
-  }
-}
-// ────────────────────────────────────────────────────────────────
 
 // GET /api/chat/history/:userId
 router.get('/history/:userId', authenticate, async (req, res) => {
@@ -80,24 +56,11 @@ router.get('/history/:userId', authenticate, async (req, res) => {
 })
 
 // POST /api/chat/upload-image
-// Accepts a multipart image, returns { url }.
-// Uses Cloudinary when configured, otherwise local /uploads.
 router.post('/upload-image', authenticate, ...upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'File tidak ada' })
-
-    if (cloudinary) {
-      // Upload the temp file to Cloudinary
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder:          'gamemarket/chat',
-        resource_type:   'image',
-        transformation:  [{ quality: 'auto', fetch_format: 'auto' }],
-      })
-      return res.json({ url: result.secure_url })
-    }
-
-    // Fallback: local file already saved by multer
-    res.json({ url: `/uploads/${req.file.filename}` })
+    const url = await storeImage(req.file, 'chat')
+    res.json({ url })
   } catch (err) {
     console.error('Chat image upload error:', err)
     res.status(500).json({ message: 'Gagal upload gambar' })

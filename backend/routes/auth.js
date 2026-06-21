@@ -465,7 +465,12 @@ router.post('/google', authLimiter, async (req, res) => {
     const jwtToken = generateToken(user._id, user.tokenVersion)
     res.json({ token: jwtToken, isNew, user: publicUser(user) })
   } catch (err) {
-    console.error('Google auth error:', err)
+    console.error('Google auth error:', err.message)
+    if (err.message?.includes('audience')) {
+      return res.status(400).json({
+        message: 'Client ID tidak cocok — pastikan VITE_GOOGLE_CLIENT_ID dan GOOGLE_CLIENT_ID sama',
+      })
+    }
     res.status(500).json({ message: 'Autentikasi Google gagal' })
   }
 })

@@ -6,6 +6,7 @@ import Order from '../models/Order.js'
 import { getWalletSummary } from '../lib/walletService.js'
 import { authenticate, optionalAuth, requireRole } from '../middleware/auth.js'
 import { upload } from '../middleware/upload.js'
+import { storeImage, storeImages } from '../lib/cloudinaryStorage.js'
 import { GAME_CATEGORIES, ROLE_CONFIG } from '../lib/constants.js'
 import { notify } from '../lib/notify.js'
 import { shouldCountView } from '../lib/viewTracker.js'
@@ -147,7 +148,9 @@ router.post('/', authenticate, ...upload.array('images', 5), async (req, res) =>
     const roleConfig = ROLE_CONFIG[req.user.role]
     const status = roleConfig?.canPostWithoutApproval ? 'approved' : 'pending'
 
-    const images = req.files?.map((f) => `/uploads/${f.filename}`) || []
+    const images = req.files?.length
+      ? await storeImages(req.files, 'posts')
+      : []
 
     const post = await Post.create({
       title: title.trim(),
@@ -351,7 +354,9 @@ router.put('/:id', authenticate, ...upload.array('images', 5), async (req, res) 
       keptImages = post.images
     }
 
-    const newImages = req.files?.map((f) => `/uploads/${f.filename}`) || []
+    const newImages = req.files?.length
+      ? await storeImages(req.files, 'posts')
+      : []
     const allImages = [...keptImages, ...newImages]
 
     if (allImages.length === 0) {

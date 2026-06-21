@@ -2,6 +2,7 @@ import express from 'express'
 import User from '../models/User.js'
 import { authenticate } from '../middleware/auth.js'
 import { upload } from '../middleware/upload.js'
+import { storeImage } from '../lib/cloudinaryStorage.js'
 
 const router = express.Router()
 
@@ -53,7 +54,7 @@ router.patch('/me', authenticate, async (req, res) => {
 router.post('/me/avatar', authenticate, ...upload.single('avatar'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'File tidak ada' })
-    const avatarUrl = `/uploads/${req.file.filename}`
+    const avatarUrl = await storeImage(req.file, 'avatars')
     const user = await User.findByIdAndUpdate(req.user._id, { avatar: avatarUrl }, { new: true })
     const { password, googleId, ...pub } = user.toObject()
     res.json(pub)
@@ -64,7 +65,7 @@ router.post('/me/avatar', authenticate, ...upload.single('avatar'), async (req, 
 router.post('/me/banner', authenticate, ...upload.single('banner'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'File tidak ada' })
-    const bannerUrl = `/uploads/${req.file.filename}`
+    const bannerUrl = await storeImage(req.file, 'banners')
     const user = await User.findByIdAndUpdate(req.user._id, { banner: bannerUrl }, { new: true })
     const { password, googleId, ...pub } = user.toObject()
     res.json(pub)

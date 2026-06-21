@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { MdMailOutline, MdLockOutline, MdVisibility, MdVisibilityOff } from 'react-icons/md'
 import toast from 'react-hot-toast'
 import useAuthStore from '../store/authStore'
 import { GOOGLE_CLIENT_ID } from '../lib/constants'
+import { ensureGoogleSignIn, renderGoogleButton } from '../lib/googleAuth'
 
 export default function LoginPage() {
   const { login, loginWithGoogle, isLoading } = useAuthStore()
   const navigate = useNavigate()
-  const [form, setForm]     = useState({ email: '', password: '' })
-  const [showPwd, setShow]  = useState(false)
+  const [form, setForm] = useState({ email: '', password: '' })
+  const [showPwd, setShow] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
+  const btnRef = useRef(null)
 
   useEffect(() => {
     const notice = sessionStorage.getItem('ban-notice')
@@ -19,31 +22,39 @@ export default function LoginPage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) return
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.defer = true
-    script.onload = () => {
-      window.google?.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogle,
-      })
-      window.google?.accounts.id.renderButton(
-        document.getElementById('g-btn'),
-        { theme: 'outline', size: 'large', width: '100%', text: 'signin_with' }
-      )
+  const handleGoogleSuccess = useCallback(async (credential) => {
+    setGoogleLoading(true)
+    try {
+      const r = await loginWithGoogle(credential)
+      if (r.success) {
+        toast.success('Berhasil masuk')
+        navigate('/', { replace: true })
+      } else {
+        toast.error(r.error || 'Login Google gagal')
+      }
+    } finally {
+      setGoogleLoading(false)
     }
-    document.body.appendChild(script)
-    return () => document.body.removeChild(script)
+  }, [loginWithGoogle, navigate])
+
+  const handleGoogleError = useCallback((msg) => {
+    if (msg && msg !== 'Login Google dibatalkan') {
+      toast.error(msg)
+    }
   }, [])
 
-  const handleGoogle = async (res) => {
-    const r = await loginWithGoogle(res.credential)
-    if (r.success) { toast.success('Berhasil masuk'); navigate('/') }
-    else toast.error(r.error)
-  }
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return
+
+    ensureGoogleSignIn(handleGoogleSuccess, handleGoogleError)
+      .then(() => {
+        const width = btnRef.current?.offsetWidth || 360
+        renderGoogleButton('g-btn', { width })
+      })
+      .catch((err) => {
+        console.error(err)
+      })
+  }, [handleGoogleSuccess, handleGoogleError])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -75,10 +86,15 @@ export default function LoginPage() {
         </Link>
       </p>
 
-      {/* Google */}
       {GOOGLE_CLIENT_ID ? (
         <>
-          <div id="g-btn" style={{ width: '100%', marginBottom: 16 }} />
+          <div ref={btnRef} id="g-btn" style={{ width: '100%', marginBottom: 16, minHeight: 44, position: 'relative' }}>
+            {googleLoading && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-elevated)', borderRadius: 11, zIndex: 1 }}>
+                <Spinner /> Memproses Google…
+              </div>
+            )}
+          </div>
           <AppleDivider label="atau lanjutkan dengan email" />
         </>
       ) : (
@@ -135,7 +151,7 @@ export default function LoginPage() {
 
         <button
           type="submit"
-          disabled={isLoading}
+          disabled={isLoading || googleLoading}
           className="btn-primary"
           style={{ width: '100%', marginTop: 4, justifyContent: 'center' }}
         >
@@ -199,7 +215,7 @@ function GoogleFallback() {
   return (
     <button
       type="button"
-      onClick={() => toast.error('Atur Google Client ID di .env terlebih dahulu')}
+      onClick={() => toast.error('Atur VITE_GOOGLE_CLIENT_ID di frontend/.env')}
       style={{
         width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
         padding: '11px 16px', marginBottom: 16,
