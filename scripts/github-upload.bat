@@ -3,79 +3,105 @@ setlocal EnableDelayedExpansion
 chcp 65001 >nul 2>&1
 
 :: =============================================================================
-::  GameMarket — GitHub Upload Script
-::  Upload / push project ini ke GitHub repository
+::  GameMarket — Quick Push to GitHub
+::  Otomatis pull + rebase + push ke GitHub
 ::  Usage: klik 2x github-upload.bat
 :: =============================================================================
 
-echo.
-echo ==========================================
-echo   GameMarket - GitHub Upload
-echo ==========================================
+:: ── Warna helper ──────────────────────────────────────────────────────────
+set "GREEN=[92m"
+set "YELLOW=[93m"
+set "RED=[91m"
+set "CYAN=[96m"
+set "RESET=[0m"
+
+call :header
 echo.
 
 :: ── Check Git installed ────────────────────────────────────────────────────
 where git >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Git tidak ditemukan!
+    echo %RED%[ERROR]%RESET% Git tidak ditemukan^^!
     echo.
     echo Install Git dari: https://git-scm.com/download/win
     echo Setelah install, restart CMD/terminal lalu coba lagi.
-    pause
-    exit /b 1
+    pause & exit /b 1
 )
-
 for /f "tokens=*" %%v in ('git --version') do set GIT_VER=%%v
-echo [✓] %GIT_VER%
+echo %GREEN%[✓]%RESET% %GIT_VER%
 
 :: ── Pindah ke root project ─────────────────────────────────────────────────
 cd /d "%~dp0.."
-set PROJECT_DIR=%CD%
-echo [i] Project dir : %PROJECT_DIR%
-echo.
+set "PROJECT_DIR=%CD%"
+echo %CYAN%[i]%RESET% Project dir : %PROJECT_DIR%
 
-:: ── Check apakah sudah ada .git ────────────────────────────────────────────
+:: ── Check .git ────────────────────────────────────────────────────────────
 set IS_NEW_REPO=0
 if not exist ".git" (
     set IS_NEW_REPO=1
-    echo [i] Belum ada Git repository di folder ini.
+    echo %YELLOW%[i]%RESET% Belum ada Git repository di folder ini.
 ) else (
-    echo [i] Git repository sudah ada.
     for /f "tokens=*" %%b in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set CURRENT_BRANCH=%%b
-    echo [i] Branch saat ini : !CURRENT_BRANCH!
-    echo.
     for /f "tokens=*" %%r in ('git remote get-url origin 2^>nul') do set CURRENT_REMOTE=%%r
-    if not "!CURRENT_REMOTE!"=="" (
-        echo [i] Remote origin  : !CURRENT_REMOTE!
-        echo.
+    for /f "tokens=*" %%u in ('git config user.name 2^>nul') do set GIT_USER=%%u
+    for /f "tokens=*" %%e in ('git config user.email 2^>nul') do set GIT_EMAIL=%%e
+    echo %GREEN%[✓]%RESET% Git repository ditemukan
+    if not "!CURRENT_BRANCH!"=="" echo %CYAN%[i]%RESET% Branch         : !CURRENT_BRANCH!
+    if not "!CURRENT_REMOTE!"=="" echo %CYAN%[i]%RESET% Remote origin  : !CURRENT_REMOTE!
+    if not "!GIT_USER!"==""       echo %CYAN%[i]%RESET% User           : !GIT_USER! ^(!GIT_EMAIL!^)
+)
+
+:: ── Load saved config ─────────────────────────────────────────────────────
+set SAVED_URL=
+set SAVED_BRANCH=
+if exist "%~dp0github-config.txt" (
+    for /f "tokens=1,* delims==" %%a in (%~dp0github-config.txt) do (
+        if "%%a"=="GITHUB_URL" set SAVED_URL=%%b
+        if "%%a"=="BRANCH"     set SAVED_BRANCH=%%b
     )
 )
 
 :: ── Input GitHub repo URL ──────────────────────────────────────────────────
+echo.
 echo Masukkan URL repository GitHub kamu.
 echo Contoh : https://github.com/username/nama-repo.git
-echo          git@github.com:username/nama-repo.git
+if not "!SAVED_URL!"=="" echo %CYAN%[i]%RESET% Tersimpan      : !SAVED_URL!
 echo.
-set /p GITHUB_URL="GitHub URL: "
-
+set /p GITHUB_URL="GitHub URL (Enter = pakai tersimpan): "
 if "!GITHUB_URL!"=="" (
-    echo [ERROR] URL tidak boleh kosong.
-    pause
-    exit /b 1
+    if "!SAVED_URL!"=="" (
+        echo %RED%[ERROR]%RESET% URL tidak boleh kosong.
+        pause & exit /b 1
+    )
+    set "GITHUB_URL=!SAVED_URL!"
+    echo %GREEN%[✓]%RESET% Menggunakan URL tersimpan: !GITHUB_URL!
 )
 
 :: Validasi minimal mengandung github.com
 echo !GITHUB_URL! | findstr /i "github.com" >nul
 if errorlevel 1 (
-    echo [WARN] URL tidak mengandung 'github.com'. Pastikan URL benar.
+    echo %YELLOW%[WARN]%RESET% URL tidak mengandung 'github.com'. Pastikan URL benar.
     set /p CONT="Lanjutkan tetap? (y/N): "
     if /i not "!CONT!"=="y" exit /b 0
 )
 
 :: ── Input branch name ──────────────────────────────────────────────────────
 echo.
-set /p BRANCH_INPUT="Nama branch [main]: "
-if "!BRANCH_INPUT!"=="" set BRANCH_INPUT=main
+if not "!SAVED_BRANCH!"=="" (
+    set /p BRANCH_INPUT="Nama branch [!SAVED_BRANCH!]: "
+    if "!BRANCH_INPUT!"=="" set "BRANCH_INPUT=!SAVED_BRANCH!"
+) else (
+    set /p BRANCH_INPUT="Nama branch [main]: "
+    if "!BRANCH_INPUT!"=="" set BRANCH_INPUT=main
+)
+
+:: ── Tampilkan perubahan sejak commit terakhir ─────────────────────────────
+echo.
+echo ─────────────────────────────────────────
+echo %CYAN%[i]%RESET% Perubahan sejak commit terakhir:
+git status --short 2>nul
+if errorlevel 1 echo   (belum ada commit — semua file baru)
+echo ─────────────────────────────────────────
 
 :: ── Input commit message ───────────────────────────────────────────────────
 echo.
@@ -86,39 +112,32 @@ if "!COMMIT_MSG!"=="" set COMMIT_MSG=update
 echo.
 echo ==========================================
 echo   Ringkasan:
-echo   URL     : !GITHUB_URL!
-echo   Branch  : !BRANCH_INPUT!
-echo   Commit  : !COMMIT_MSG!
+echo   Repository : !GITHUB_URL!
+echo   Branch     : !BRANCH_INPUT!
+echo   Commit     : "!COMMIT_MSG!"
 echo ==========================================
 echo.
 set /p CONFIRM="Lanjutkan? (y/N): "
 if /i not "!CONFIRM!"=="y" (
     echo Dibatalkan.
-    pause
-    exit /b 0
+    pause & exit /b 0
 )
-
 echo.
 
 :: ── Git init (kalau repo baru) ─────────────────────────────────────────────
 if !IS_NEW_REPO!==1 (
-    echo [→] Inisialisasi Git repository...
-    git init -b "!BRANCH_INPUT!"
+    echo %CYAN%[→]%RESET% Inisialisasi Git repository...
+    git init -b "!BRANCH_INPUT!" >nul 2>&1
     if errorlevel 1 (
-        git init
+        git init >nul 2>&1
         git checkout -b "!BRANCH_INPUT!" >nul 2>&1
     )
-    if errorlevel 1 ( echo [ERROR] git init gagal. & pause & exit /b 1 )
-    echo [✓] Git repository diinisialisasi
+    echo %GREEN%[✓]%RESET% Git repository diinisialisasi
     echo.
 ) else (
-    :: Rename branch ke target jika berbeda
     if not "!CURRENT_BRANCH!"=="!BRANCH_INPUT!" (
-        if "!CURRENT_BRANCH!"=="HEAD" (
-            :: HEAD artinya belum ada commit sama sekali, branch akan dibuat saat commit
-            echo [i] Branch akan dibuat sebagai '!BRANCH_INPUT!' setelah commit pertama
-        ) else (
-            echo [→] Rename branch '!CURRENT_BRANCH!' ke '!BRANCH_INPUT!'...
+        if not "!CURRENT_BRANCH!"=="HEAD" (
+            echo %CYAN%[→]%RESET% Rename branch '!CURRENT_BRANCH!' ke '!BRANCH_INPUT!'...
             git branch -M "!BRANCH_INPUT!" >nul 2>&1
         )
     )
@@ -126,23 +145,19 @@ if !IS_NEW_REPO!==1 (
 
 :: ── Check/set git user config ──────────────────────────────────────────────
 for /f "tokens=*" %%u in ('git config user.name 2^>nul') do set GIT_USER=%%u
-for /f "tokens=*" %%e in ('git config user.email 2^>nul') do set GIT_EMAIL=%%e
-
 if "!GIT_USER!"=="" (
-    echo [i] Git user belum dikonfigurasi.
+    echo %YELLOW%[i]%RESET% Git user belum dikonfigurasi.
     set /p GIT_USER="Nama kamu (untuk Git): "
     set /p GIT_EMAIL="Email GitHub kamu: "
     git config user.name "!GIT_USER!"
     git config user.email "!GIT_EMAIL!"
-    echo [✓] Git user dikonfigurasi
+    echo %GREEN%[✓]%RESET% Git user dikonfigurasi: !GIT_USER!
     echo.
-) else (
-    echo [✓] Git user : !GIT_USER! ^(!GIT_EMAIL!^)
 )
 
-:: ── Cek / pastikan .gitignore ada ─────────────────────────────────────────
+:: ── Cek / buat .gitignore ─────────────────────────────────────────────────
 if not exist ".gitignore" (
-    echo [WARN] .gitignore tidak ditemukan — membuat default...
+    echo %YELLOW%[WARN]%RESET% .gitignore tidak ditemukan — membuat default...
     (
         echo .env
         echo backend/.env
@@ -156,8 +171,10 @@ if not exist ".gitignore" (
         echo *.log
         echo .DS_Store
         echo Thumbs.db
+        echo *.pem
+        echo *.pem.bak
     ) > .gitignore
-    echo [✓] .gitignore dibuat
+    echo %GREEN%[✓]%RESET% .gitignore dibuat
 )
 
 :: ── Pastikan backend/uploads/.gitkeep ada ─────────────────────────────────
@@ -166,126 +183,173 @@ if not exist "backend\uploads\.gitkeep" type nul > "backend\uploads\.gitkeep"
 
 :: ── Set/update remote origin ───────────────────────────────────────────────
 echo.
-echo [→] Mengatur remote origin...
+echo %CYAN%[→]%RESET% Mengatur remote origin...
 git remote remove origin >nul 2>&1
 git remote add origin "!GITHUB_URL!"
-echo [✓] Remote origin: !GITHUB_URL!
+echo %GREEN%[✓]%RESET% Remote origin: !GITHUB_URL!
 
-:: ── Rename branch ke target ────────────────────────────────────────────────
+:: ── Pastikan checkout ke branch yang benar ───────────────────────────────
 git checkout -b "!BRANCH_INPUT!" >nul 2>&1
 if errorlevel 1 (
-    git branch -M "!BRANCH_INPUT!" >nul 2>&1
+    git checkout "!BRANCH_INPUT!" >nul 2>&1
+    if errorlevel 1 git branch -M "!BRANCH_INPUT!" >nul 2>&1
 )
+
 :: ── Stage semua file ───────────────────────────────────────────────────────
 echo.
-echo [→] Staging semua file...
+echo %CYAN%[→]%RESET% Staging perubahan...
 git add -A
-if errorlevel 1 ( echo [ERROR] git add gagal. & pause & exit /b 1 )
-
-:: Tampilkan ringkasan yang akan di-commit
-echo.
-echo [i] File yang akan di-commit:
-git diff --cached --stat 2>nul | head /c 20
-echo.
+if errorlevel 1 ( echo %RED%[ERROR]%RESET% git add gagal. & pause & exit /b 1 )
 
 :: Cek apakah ada yang di-stage
 git diff --cached --quiet >nul 2>&1
 if not errorlevel 1 (
-    echo [WARN] Tidak ada perubahan baru untuk di-commit.
+    echo %YELLOW%[WARN]%RESET% Tidak ada perubahan baru untuk di-commit.
     echo.
     set /p FORCE_PUSH="Push tetap ke remote? (y/N): "
     if /i not "!FORCE_PUSH!"=="y" (
         echo Selesai — tidak ada yang di-push.
-        pause
-        exit /b 0
+        pause & exit /b 0
     )
-    goto :do_push
+    goto :do_pull
 )
 
+:: Tampilkan ringkasan yang akan di-commit
+echo.
+echo %CYAN%[i]%RESET% File yang akan di-commit:
+git diff --cached --stat 2>nul
+echo.
+
 :: ── Commit ────────────────────────────────────────────────────────────────
-echo [→] Membuat commit...
+echo %CYAN%[→]%RESET% Commit: "!COMMIT_MSG!"
 git commit -m "!COMMIT_MSG!"
-if errorlevel 1 ( echo [ERROR] git commit gagal. & pause & exit /b 1 )
-echo [✓] Commit berhasil
+if errorlevel 1 ( echo %RED%[ERROR]%RESET% git commit gagal. & pause & exit /b 1 )
+echo %GREEN%[✓]%RESET% Commit berhasil
+
+:do_pull
+:: ── Pull + Rebase (cegah reject "fetch first") ───────────────────────────
+echo.
+echo %CYAN%[→]%RESET% Memeriksa perubahan di remote (pull --rebase)...
+git pull origin "!BRANCH_INPUT!" --rebase >nul 2>&1
+set PULL_ERR=!ERRORLEVEL!
+
+:: Cek apakah ada conflict setelah rebase
+git diff --name-only --diff-filter=U 2>nul | findstr "." >nul 2>&1
+if not errorlevel 1 (
+    echo.
+    echo %RED%[CONFLICT]%RESET% Ada conflict yang perlu diselesaikan manual^^!
+    echo.
+    echo File yang conflict:
+    git diff --name-only --diff-filter=U
+    echo.
+    echo Langkah penyelesaian:
+    echo   1. Buka file di atas, selesaikan conflict ^(hapus tanda ^^^<^^^<^^^< dst^)
+    echo   2. Jalankan: git add .
+    echo   3. Jalankan: git rebase --continue
+    echo   4. Jalankan script ini lagi
+    echo.
+    git rebase --abort >nul 2>&1
+    echo %YELLOW%[i]%RESET% Rebase dibatalkan. Commit lokal kamu tetap aman.
+    pause & exit /b 1
+)
+
+if !PULL_ERR! neq 0 (
+    :: Remote mungkin belum ada (repo baru) — lanjut push saja
+    echo %YELLOW%[i]%RESET% Pull tidak berhasil ^(mungkin repo baru / branch belum ada^) — lanjut push...
+)
 
 :do_push
 :: ── Push ke GitHub ────────────────────────────────────────────────────────
 echo.
-echo [→] Pushing ke GitHub...
-echo     (Jika muncul login browser/window, masukkan credentials GitHub kamu)
+echo %CYAN%[→]%RESET% Pushing ke GitHub...
+echo     ^(Jika muncul login browser/window, masukkan credentials GitHub kamu^)
 echo.
 git push -u origin "!BRANCH_INPUT!"
 
 if errorlevel 1 (
     echo.
-    echo [ERROR] Push gagal!
+    echo %RED%[ERROR]%RESET% Push gagal^^!
     echo.
     echo Kemungkinan penyebab:
     echo.
-    echo   1. REPOSITORY BELUM DIBUAT di GitHub ^(paling sering^)
-    echo      Buka browser dan buat repo dulu:
-    echo      https://github.com/new
-    echo      - Repository name: isi nama repo
+    echo   1. REPOSITORY BELUM DIBUAT di GitHub
+    echo      Buat repo baru di: https://github.com/new
     echo      - Jangan centang "Initialize this repository"
-    echo      - Klik "Create repository"
-    echo      Setelah dibuat, jalankan script ini lagi.
+    echo      - Klik "Create repository", lalu jalankan script ini lagi.
     echo.
     echo   2. Autentikasi gagal
     echo      Gunakan Personal Access Token ^(bukan password biasa^):
-    echo      https://github.com/settings/tokens/new
-    echo      Centang: repo ^(full control^)
-    echo      Salin token, pakai sebagai password saat diminta Git.
+    echo      https://github.com/settings/tokens/new ^(centang: repo^)
     echo.
-    echo   3. Nama repo/username salah di URL
-    echo      URL yang dipakai: !GITHUB_URL!
+    echo   3. URL salah: !GITHUB_URL!
     echo.
-    set /p RETRY="Coba push lagi sekarang? (y/N): "
+    set /p RETRY="Coba push lagi? (y/N): "
     if /i "!RETRY!"=="y" (
         echo.
-        echo [→] Retry push...
+        echo %CYAN%[→]%RESET% Retry push...
         git push -u origin "!BRANCH_INPUT!"
         if errorlevel 1 (
             echo.
-            set /p FORCE="Masih gagal. Force push? ^(HATI-HATI: overwrite remote^) (y/N): "
-            if /i "!FORCE!"=="y" (
+            echo %YELLOW%[WARN]%RESET% Masih gagal.
+            echo.
+            echo Force push akan MENIMPA semua perubahan di remote^^!
+            echo Gunakan hanya jika kamu yakin 100%% versi lokal yang benar.
+            echo.
+            set /p FORCE="Force push? (ketik FORCE untuk konfirmasi): "
+            if "!FORCE!"=="FORCE" (
                 git push -u origin "!BRANCH_INPUT!" --force
                 if errorlevel 1 (
-                    echo [ERROR] Force push juga gagal. Cek URL dan buat repo di GitHub dulu.
+                    echo %RED%[ERROR]%RESET% Force push juga gagal. Cek URL dan koneksi internet.
                     pause & exit /b 1
                 )
+                echo %YELLOW%[!]%RESET% Force push berhasil — remote telah di-overwrite.
+                goto :success
             ) else (
-                echo.
-                echo Commit sudah tersimpan lokal. Jalankan script lagi setelah repo dibuat.
+                echo Commit sudah tersimpan lokal. Jalankan script lagi setelah masalah teratasi.
                 pause & exit /b 1
             )
         )
     ) else (
-        echo.
         echo Commit sudah tersimpan lokal. Jalankan script lagi setelah membuat repo di GitHub.
         pause & exit /b 1
     )
 )
 
+:success
 :: ── Sukses ────────────────────────────────────────────────────────────────
 echo.
 echo ==========================================
-echo   [✓] Upload berhasil!
+echo   %GREEN%[✓] Upload berhasil^^!%RESET%
 echo ==========================================
 echo.
 
-:: Tampilkan URL repo (bersihkan .git dari akhir URL)
-set REPO_URL=!GITHUB_URL!
-set REPO_URL=!REPO_URL:.git=!
+set "REPO_URL=!GITHUB_URL:.git=!"
 echo   Repository : !REPO_URL!
 echo   Branch     : !BRANCH_INPUT!
+echo   User       : !GIT_USER!
+echo.
+
+:: Tampilkan info commit terakhir
+for /f "tokens=*" %%h in ('git log -1 --format^="%%h %%s" 2^>nul') do echo   Commit     : %%h
 echo.
 echo   Buka di browser: !REPO_URL!
 echo.
 
-:: ── Simpan URL ke file config ──────────────────────────────────────────────
-echo GITHUB_URL=!GITHUB_URL!> "%~dp0github-config.txt"
-echo BRANCH=!BRANCH_INPUT!>> "%~dp0github-config.txt"
-echo [i] Konfigurasi disimpan ke scripts\github-config.txt
+:: ── Simpan config ─────────────────────────────────────────────────────────
+(
+    echo GITHUB_URL=!GITHUB_URL!
+    echo BRANCH=!BRANCH_INPUT!
+) > "%~dp0github-config.txt"
+echo %CYAN%[i]%RESET% Konfigurasi disimpan ke scripts\github-config.txt
 
 echo.
 pause
+goto :eof
+
+:: ─────────────────────────────────────────────────────────────────────────
+:header
+echo.
+echo ==========================================
+echo   GameMarket - Quick Push to GitHub
+echo ==========================================
+goto :eof
