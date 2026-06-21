@@ -103,10 +103,25 @@ echo.
 :: ── Git init (kalau repo baru) ─────────────────────────────────────────────
 if !IS_NEW_REPO!==1 (
     echo [→] Inisialisasi Git repository...
-    git init
+    git init -b "!BRANCH_INPUT!"
+    if errorlevel 1 (
+        git init
+        git checkout -b "!BRANCH_INPUT!" >nul 2>&1
+    )
     if errorlevel 1 ( echo [ERROR] git init gagal. & pause & exit /b 1 )
     echo [✓] Git repository diinisialisasi
     echo.
+) else (
+    :: Rename branch ke target jika berbeda
+    if not "!CURRENT_BRANCH!"=="!BRANCH_INPUT!" (
+        if "!CURRENT_BRANCH!"=="HEAD" (
+            :: HEAD artinya belum ada commit sama sekali, branch akan dibuat saat commit
+            echo [i] Branch akan dibuat sebagai '!BRANCH_INPUT!' setelah commit pertama
+        ) else (
+            echo [→] Rename branch '!CURRENT_BRANCH!' ke '!BRANCH_INPUT!'...
+            git branch -M "!BRANCH_INPUT!" >nul 2>&1
+        )
+    )
 )
 
 :: ── Check/set git user config ──────────────────────────────────────────────
@@ -161,7 +176,6 @@ git checkout -b "!BRANCH_INPUT!" >nul 2>&1
 if errorlevel 1 (
     git branch -M "!BRANCH_INPUT!" >nul 2>&1
 )
-
 :: ── Stage semua file ───────────────────────────────────────────────────────
 echo.
 echo [→] Staging semua file...
@@ -207,31 +221,48 @@ if errorlevel 1 (
     echo [ERROR] Push gagal!
     echo.
     echo Kemungkinan penyebab:
-    echo   1. Repository belum dibuat di GitHub
-    echo      → Buat dulu di: https://github.com/new
+    echo.
+    echo   1. REPOSITORY BELUM DIBUAT di GitHub ^(paling sering^)
+    echo      Buka browser dan buat repo dulu:
+    echo      https://github.com/new
+    echo      - Repository name: isi nama repo
+    echo      - Jangan centang "Initialize this repository"
+    echo      - Klik "Create repository"
+    echo      Setelah dibuat, jalankan script ini lagi.
     echo.
     echo   2. Autentikasi gagal
-    echo      → Gunakan Personal Access Token sebagai password
-    echo      → Buat token: https://github.com/settings/tokens
+    echo      Gunakan Personal Access Token ^(bukan password biasa^):
+    echo      https://github.com/settings/tokens/new
+    echo      Centang: repo ^(full control^)
+    echo      Salin token, pakai sebagai password saat diminta Git.
     echo.
-    echo   3. Repository sudah ada dan ada history berbeda
-    echo      → Coba: git push -u origin !BRANCH_INPUT! --force
-    echo        (HATI-HATI: --force akan overwrite remote)
+    echo   3. Nama repo/username salah di URL
+    echo      URL yang dipakai: !GITHUB_URL!
     echo.
-    set /p FORCE="Force push? Ini akan overwrite remote. (y/N): "
-    if /i "!FORCE!"=="y" (
+    set /p RETRY="Coba push lagi sekarang? (y/N): "
+    if /i "!RETRY!"=="y" (
         echo.
-        echo [→] Force pushing...
-        git push -u origin "!BRANCH_INPUT!" --force
+        echo [→] Retry push...
+        git push -u origin "!BRANCH_INPUT!"
         if errorlevel 1 (
-            echo [ERROR] Force push juga gagal.
-            echo Cek koneksi internet dan pastikan URL GitHub benar.
-            pause
-            exit /b 1
+            echo.
+            set /p FORCE="Masih gagal. Force push? ^(HATI-HATI: overwrite remote^) (y/N): "
+            if /i "!FORCE!"=="y" (
+                git push -u origin "!BRANCH_INPUT!" --force
+                if errorlevel 1 (
+                    echo [ERROR] Force push juga gagal. Cek URL dan buat repo di GitHub dulu.
+                    pause & exit /b 1
+                )
+            ) else (
+                echo.
+                echo Commit sudah tersimpan lokal. Jalankan script lagi setelah repo dibuat.
+                pause & exit /b 1
+            )
         )
     ) else (
-        pause
-        exit /b 1
+        echo.
+        echo Commit sudah tersimpan lokal. Jalankan script lagi setelah membuat repo di GitHub.
+        pause & exit /b 1
     )
 )
 
