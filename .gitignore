@@ -1,0 +1,36 @@
+# Environment & secrets — SEC-001
+.env
+backend/.env
+frontend/.env
+*.env.local
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build output
+frontend/dist/
+dist/
+
+# Uploads (local dev)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Archives / secrets
+*.rar
+*.zip
+
+# Script config (generated locally)
+scripts/github-config.txt
